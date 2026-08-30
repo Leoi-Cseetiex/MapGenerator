@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixelverse Tokyo Procedural City — Full Baseline + Road Graph</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="row between">
+    <div>
+      <div class="title">Pixelverse Tokyo Procedural City</div>
+      <div class="sub">
+        Full baseline + same-Z road graph, overlap prevention and classified intersections
+      </div>
+      <div
+        id="appStatus"
+        style="margin-top:6px;font-size:12px;color:#9da8ae"
+      >
+        Loading generator…
+      </div>
+    </div>
+
+    <button id="generate" class="primary">
+      Generate New Layout
+    </button>
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <div class="row between">
+
+      <div class="row">
+        <button id="zDown">Z −</button>
+
+        <div
+          class="panel"
+          style="padding:8px 14px;min-width:260px;text-align:center"
+        >
+          <div id="zTitle"><b>Z +1 — Roads</b></div>
+          <div id="zDesc" class="small"></div>
+        </div>
+
+        <button id="zUp">Z +</button>
+        <button id="composite">Show Composite</button>
+      </div>
+
+      <div class="row">
+        <button class="zbtn" data-z="-2">Z −2 Rail</button>
+        <button class="zbtn" data-z="-1">Z −1 Platforms</button>
+        <button class="zbtn" data-z="0">Z 0 Terrain</button>
+        <button class="zbtn" data-z="1">Z +1 Roads</button>
+        <button class="zbtn" data-z="2">Z +2 Assets</button>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-top:14px">
+
+    <section>
+      <div class="row between" style="margin-bottom:6px">
+        <b>100×100 topology overview</b>
+        <span class="small">Tap to move detail region</span>
+      </div>
+
+      <div class="canvasWrap">
+        <canvas id="overview" width="800" height="800"></canvas>
+      </div>
+    </section>
+
+    <section>
+
+      <div class="row between" style="margin-bottom:6px">
+
+        <div>
+          <b id="detailTitle">Z +1 — Roads</b>
+          <div id="detailLabel" class="small"></div>
+        </div>
+
+        <div class="row">
+          <button id="zoomIn">Zoom +</button>
+          <button id="zoomOut">Zoom −</button>
+        </div>
+
+      </div>
+
+      <div class="canvasWrap">
+        <canvas id="detail" width="800" height="800"></canvas>
+      </div>
+
+      <div class="row small" style="margin-top:8px">
+
+        <label>
+          <input id="reservations" type="checkbox">
+          Reservations
+        </label>
+
+        <label>
+          <input id="placementGrid" type="checkbox">
+          Placement grid
+        </label>
+
+        <label>
+          <input id="parentGrid" type="checkbox">
+          Parent grid
+        </label>
+
+        <label>
+          <input id="minorGrid" type="checkbox" checked>
+          16×16 minor grid
+        </label>
+
+        <label>
+          <input id="microGrid" type="checkbox" checked>
+          4×4 micro grid
+        </label>
+
+        <label>
+          <input id="intersectionLabels" type="checkbox" checked>
+          Intersection labels
+        </label>
+
+        <label>
+          <input id="squareView" type="checkbox">
+          Grid squares
+        </label>
+
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="grid4" style="margin-top:14px">
+
+    <section class="panel">
+
+      <b>Road graph</b>
+
+      <div class="stat" style="margin-top:8px">
+
+        <span class="small">Road routes</span>
+        <span id="roadCount">0</span>
+
+        <span class="small">Segments</span>
+        <span id="segmentCount">0</span>
+
+        <span class="small">Intersection nodes</span>
+        <span id="intersectionCount">0</span>
+
+        <span class="small">Rejected overlaps</span>
+        <span id="rejectedCount">0</span>
+
+        <span class="small">Endpoint snaps</span>
+        <span id="snapCount">0</span>
+
+        <span class="small">Subway routes</span>
+        <span id="railCount">0</span>
+
+        <span class="small">Stations</span>
+        <span id="stationCount">0</span>
+
+        <span class="small">Bus stops</span>
+        <span id="busCount">0</span>
+
+        <span class="small">Subway entrances</span>
+        <span id="entranceCount">0</span>
+
+      </div>
+
+    </section>
+
+    <section class="panel">
+
+      <b>Intersection types</b>
+
+      <div class="stat" style="margin-top:8px">
+
+        <span class="small">T / skew T</span>
+        <span id="tCount">0</span>
+
+        <span class="small">Y / fork</span>
+        <span id="yCount">0</span>
+
+        <span class="small">4-way / skew</span>
+        <span id="fourCount">0</span>
+
+        <span class="small">Complex / multi-arm</span>
+        <span id="complexCount">0</span>
+
+      </div>
+
+    </section>
+
+    <section class="panel">
+
+      <b>Park detail</b>
+
+      <div class="stat" style="margin-top:8px">
+
+        <span class="small">Parks</span>
+        <span id="parks">0</span>
+
+        <span class="small">Trees</span>
+        <span id="trees">0</span>
+
+        <span class="small">Benches</span>
+        <span id="benches">0</span>
+
+        <span class="small">Playgrounds</span>
+        <span id="playgrounds">0</span>
+
+        <span class="small">Pavilions / facilities</span>
+        <span id="parkStructures">0</span>
+
+      </div>
+
+    </section>
+
+    <section class="panel">
+
+      <b>Validation</b>
+
+      <div class="stat" style="margin-top:8px">
+
+        <span class="small">Building ↔ road</span>
+        <span id="vBR">0</span>
+
+        <span class="small">Building ↔ park</span>
+        <span id="vBP">0</span>
+
+        <span class="small">Tree conflicts</span>
+        <span id="vTree">0</span>
+
+        <span class="small">Asset conflicts</span>
+        <span id="vAsset">0</span>
+
+        <span>Illegal overlaps</span>
+        <span id="vTotal" class="ok">0</span>
+
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="legend panel" style="margin-top:14px">
+
+    <span>
+      <i class="sw" style="background:#4f5457"></i>
+      Road
+    </span>
+
+    <span>
+      <i class="sw" style="background:#f7f7f3"></i>
+      Japanese white markings
+    </span>
+
+    <span>
+      <i class="sw" style="background:#8eae6c"></i>
+      Park
+    </span>
+
+    <span>
+      <i class="sw" style="background:#6da4b7"></i>
+      Water
+    </span>
+
+    <span>
+      <i class="sw" style="background:#777a82"></i>
+      Buildings
+    </span>
+
+    <span>
+      <i class="sw" style="background:#cc704f"></i>
+      Intersection node
+    </span>
+
+  </div>
+
+</div>
+
+<script src="js/constants.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/roadNetwork.js"></script>
+<script src="js/parks.js"></script>
+<script src="js/generate.js"></script>
+<script src="js/renderPrimitives.js"></script>
+<script src="js/renderScene.js"></script>
+<script src="js/validate.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
