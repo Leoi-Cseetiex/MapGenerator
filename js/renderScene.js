@@ -9,7 +9,8 @@ function renderLayer(
   ctx,
   b,
   solid=false,
-  color=null
+  color=null,
+  includeBuildings=true
 ){
 
   ctx.save();
@@ -530,18 +531,22 @@ function renderLayer(
 
   if(z === 2){
 
-    for(
-      const q of
-      state.buildings
-    ){
+    if(includeBuildings){
 
-      drawBuildingDetailed(
-        ctx,
-        q,
-        b,
-        solid,
-        color
-      );
+      for(
+        const q of
+        state.buildings
+      ){
+
+        drawBuildingDetailed(
+          ctx,
+          q,
+          b,
+          solid,
+          color
+        );
+
+      }
 
     }
 
@@ -1181,18 +1186,24 @@ function renderLayer(
           );
 
 
+        const steppedRoute =
+          steppedRoutePoints(
+            route
+          );
+
+
         for(
           let i=1;
-          i<route.length;
+          i<steppedRoute.length;
           i++
         ){
 
           const a =
-            route[i-1];
+            steppedRoute[i-1];
 
 
           const c =
-            route[i];
+            steppedRoute[i];
 
 
           const dx =
@@ -1499,22 +1510,119 @@ function squareColor(bits){
 
 function renderDetailSquares(b){
 
-  for(
-    let y=b.cy0;
-    y<b.cy1;
-    y++
-  ){
+  /*
+    LOD: fill using the documented micro (4×4 per minor) or
+    minor (16×16 per parent) grid once zoomed in enough to
+    resolve them — same thresholds as the microGrid/minorGrid
+    line overlays — otherwise fall back to the coarse raw
+    SUB reserve-cell blocks for very zoomed-out views.
+  */
+
+  const useMicro =
+    b.scale / MICRO_PER_MINOR >= 1.25;
+
+  const useMinor =
+    !useMicro &&
+    b.scale >= 3;
+
+
+  if(!useMicro && !useMinor){
 
     for(
-      let x=b.cx0;
-      x<b.cx1;
-      x++
+      let y=b.cy0;
+      y<b.cy1;
+      y++
     ){
+
+      for(
+        let x=b.cx0;
+        x<b.cx1;
+        x++
+      ){
+
+        dc.fillStyle =
+          squareColor(
+            state.reserve[
+              ci(x,y)
+            ]
+          );
+
+
+        dc.fillRect(
+
+          (
+            x*SUB -
+            b.sx
+          ) *
+          b.scale,
+
+          (
+            y*SUB -
+            b.sy
+          ) *
+          b.scale,
+
+          SUB *
+          b.scale,
+
+          SUB *
+          b.scale
+
+        );
+
+      }
+
+    }
+
+    return;
+
+  }
+
+
+  const step =
+    useMicro
+      ? 1/MICRO_PER_MINOR
+      : 1;
+
+  const qx0 =
+    Math.floor(b.sx/step) *
+    step;
+
+  const qy0 =
+    Math.floor(b.sy/step) *
+    step;
+
+
+  for(
+    let qy=qy0;
+    qy<b.sy+b.span;
+    qy+=step
+  ){
+
+    const cy =
+      clamp(
+        Math.floor(qy/SUB),
+        0,
+        C-1
+      );
+
+    for(
+      let qx=qx0;
+      qx<b.sx+b.span;
+      qx+=step
+    ){
+
+      const cx =
+        clamp(
+          Math.floor(qx/SUB),
+          0,
+          C-1
+        );
 
       dc.fillStyle =
         squareColor(
           state.reserve[
-            ci(x,y)
+            ci(cx,cy)
           ]
         );
 
@@ -1522,28 +1630,106 @@ function renderDetailSquares(b){
       dc.fillRect(
 
         (
-          x*SUB -
+          qx -
           b.sx
         ) *
         b.scale,
 
         (
-          y*SUB -
+          qy -
           b.sy
         ) *
         b.scale,
 
-        SUB *
-        b.scale,
+        step *
+        b.scale +
+        .5,
 
-        SUB *
-        b.scale
+        step *
+        b.scale +
+        .5
 
       );
 
     }
 
   }
+
+}
+
+
+/* ============================================================
+   GRID SQUARES — PIXELATED ELEMENT DETAIL
+   Roads, intersections, rail and park/asset elements, resampled
+   down to one block per 16×16 minor square then blown back up
+   with no smoothing, so they read as blocky pixel-art detail
+   on top of the flat reservation-colour squares.
+   ============================================================ */
+
+function renderDetailPixelated(b){
+
+  tc.clearRect(
+    0,
+    0,
+    V,
+    V
+  );
+
+
+  renderLayer(-2, tc, b, false);
+  renderLayer(-1, tc, b, false);
+  renderLayer(1, tc, b, false);
+  renderLayer(2, tc, b, false, null, false);
+
+
+  const cells =
+    Math.max(
+      1,
+      Math.round(b.span)
+    );
+
+
+  pixelate.width = cells;
+  pixelate.height = cells;
+
+
+  pxc.imageSmoothingEnabled =
+    false;
+
+  pxc.clearRect(
+    0,
+    0,
+    cells,
+    cells
+  );
+
+  pxc.drawImage(
+    temp,
+    0,
+    0,
+    cells,
+    cells
+  );
+
+
+  dc.save();
+
+  dc.imageSmoothingEnabled =
+    false;
+
+  dc.drawImage(
+    pixelate,
+    0,
+    0,
+    cells,
+    cells,
+    0,
+    0,
+    V,
+    V
+  );
+
+  dc.restore();
 
 }
 
@@ -1588,6 +1774,8 @@ function renderDetail(){
   ){
 
     renderDetailSquares(b);
+
+    renderDetailPixelated(b);
 
   }
   else if(composite){

@@ -245,6 +245,16 @@ const mc =
   marks.getContext('2d');
 
 
+const pixelate =
+  document.createElement('canvas');
+
+pixelate.width = 1;
+pixelate.height = 1;
+
+const pxc =
+  pixelate.getContext('2d');
+
+
 const ci = (x,y) =>
   y * C + x;
 

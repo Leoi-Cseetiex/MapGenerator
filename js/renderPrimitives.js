@@ -197,6 +197,152 @@ function routeVisible(
 
 
 /* ============================================================
+   CELL-STEPPED ROUTE GEOMETRY
+
+   Roads/rails are authored as a handful of free-angle control
+   points, but are drawn as a path that only ever steps into the
+   micro-grid cell directly above/below/left/right (straight or
+   90°) or the diagonally touching corner cell (45°) — an 8-way
+   Bresenham walk between each pair of control points, at 4×4
+   micro-grid resolution. Runs of collinear steps are collapsed
+   back down to their end corners so long straight stretches stay
+   cheap to stroke. Results are memoized per points-array, since
+   the control points never change after generation.
+   ============================================================ */
+
+const MICRO_UNIT =
+  SUB * MICRO_PER_MINOR;
+
+const steppedRouteCache =
+  new WeakMap();
+
+
+function simplifyStepped(pts){
+
+  if(pts.length <= 2){
+    return pts;
+  }
+
+  const out = [
+    pts[0]
+  ];
+
+  for(
+    let i=1;
+    i<pts.length-1;
+    i++
+  ){
+
+    const a =
+      pts[i-1];
+
+    const b =
+      pts[i];
+
+    const c =
+      pts[i+1];
+
+    const d1x =
+      Math.sign(b.x-a.x);
+
+    const d1y =
+      Math.sign(b.y-a.y);
+
+    const d2x =
+      Math.sign(c.x-b.x);
+
+    const d2y =
+      Math.sign(c.y-b.y);
+
+    if(
+      d1x !== d2x ||
+      d1y !== d2y
+    ){
+      out.push(b);
+    }
+
+  }
+
+  out.push(
+    pts[pts.length-1]
+  );
+
+  return out;
+
+}
+
+
+function steppedRoutePoints(points){
+
+  const cached =
+    steppedRouteCache.get(points);
+
+  if(cached){
+    return cached;
+  }
+
+
+  const micro =
+    points.map(
+      p => ({
+        x:Math.round(p.x*MICRO_UNIT),
+        y:Math.round(p.y*MICRO_UNIT)
+      })
+    );
+
+  const raw = [];
+
+  for(
+    let i=1;
+    i<micro.length;
+    i++
+  ){
+
+    const seg =
+      bresPoints(
+        micro[i-1].x,
+        micro[i-1].y,
+        micro[i].x,
+        micro[i].y
+      );
+
+    for(
+      let j =
+        raw.length
+          ? 1
+          : 0;
+      j<seg.length;
+      j++
+    ){
+      raw.push(seg[j]);
+    }
+
+  }
+
+  if(!raw.length && micro.length){
+    raw.push(micro[0]);
+  }
+
+
+  const result =
+    simplifyStepped(raw).map(
+      p => ({
+        x:p.x/MICRO_UNIT,
+        y:p.y/MICRO_UNIT
+      })
+    );
+
+  steppedRouteCache.set(
+    points,
+    result
+  );
+
+  return result;
+
+}
+
+
+/* ============================================================
    ROUTE DRAWING
    ============================================================ */
 
@@ -216,6 +362,16 @@ function strokeRoute(
       b
     )
   ){
+    return;
+  }
+
+
+  const pts =
+    steppedRoutePoints(
+      road.points
+    );
+
+  if(pts.length < 2){
     return;
   }
 
@@ -247,86 +403,85 @@ function strokeRoute(
   );
 
 
+  ctx.beginPath();
+
+
   for(
-    let i=1;
-    i<road.points.length;
+    let i=0;
+    i<pts.length;
     i++
   ){
 
-    const a =
+    const p =
       worldPoint(
-        road.points[i-1],
+        pts[i],
         b
       );
 
 
-    const c =
-      worldPoint(
-        road.points[i],
-        b
-      );
+    let nx = 0;
+    let ny = 0;
 
 
-    const dx =
-      c.x-a.x;
+    if(offset){
 
-    const dy =
-      c.y-a.y;
+      const prev =
+        pts[
+          Math.max(0,i-1)
+        ];
 
+      const next =
+        pts[
+          Math.min(
+            pts.length-1,
+            i+1
+          )
+        ];
 
-    const L =
-      Math.max(
-        1,
-        Math.hypot(
-          dx,
-          dy
-        )
-      );
+      const pw =
+        worldPoint(prev,b);
 
+      const nw =
+        worldPoint(next,b);
 
-    const nx =
-      -dy/L;
+      const dx =
+        nw.x-pw.x;
 
-    const ny =
-      dx/L;
+      const dy =
+        nw.y-pw.y;
 
+      const L =
+        Math.max(
+          1,
+          Math.hypot(dx,dy)
+        );
 
-    ctx.beginPath();
+      nx = -dy/L;
+      ny = dx/L;
 
-
-    ctx.moveTo(
-
-      a.x +
-      nx *
-      offset *
-      b.scale,
-
-      a.y +
-      ny *
-      offset *
-      b.scale
-
-    );
+    }
 
 
-    ctx.lineTo(
+    const x =
+      p.x +
+      nx*offset*b.scale;
 
-      c.x +
-      nx *
-      offset *
-      b.scale,
-
-      c.y +
-      ny *
-      offset *
-      b.scale
-
-    );
+    const y =
+      p.y +
+      ny*offset*b.scale;
 
 
-    ctx.stroke();
+    if(i === 0){
+      ctx.moveTo(x,y);
+    }
+    else{
+      ctx.lineTo(x,y);
+    }
 
   }
+
+
+  ctx.stroke();
 
 
   ctx.setLineDash([]);

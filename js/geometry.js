@@ -75,6 +75,81 @@ function bres(x0,y0,x1,y1){
 }
 
 
+/*
+  Unbounded 8-directional Bresenham stepper — same stepping
+  rule as bres() (each output point differs from the previous
+  by one cell, straight/diagonal only) but without the world
+  `inside()` clip, for stepping road/rail polylines used only
+  for drawing.
+*/
+
+function bresPoints(x0,y0,x1,y1){
+
+  x0 = Math.round(x0);
+  y0 = Math.round(y0);
+
+  x1 = Math.round(x1);
+  y1 = Math.round(y1);
+
+  const out = [];
+
+  let dx =
+    Math.abs(x1-x0);
+
+  let sx =
+    x0 < x1
+      ? 1
+      : -1;
+
+  let dy =
+    -Math.abs(y1-y0);
+
+  let sy =
+    y0 < y1
+      ? 1
+      : -1;
+
+  let e =
+    dx + dy;
+
+  while(true){
+
+    out.push({
+      x:x0,
+      y:y0
+    });
+
+    if(
+      x0 === x1 &&
+      y0 === y1
+    ){
+      break;
+    }
+
+    const e2 =
+      2 * e;
+
+    if(e2 >= dy){
+
+      e += dy;
+      x0 += sx;
+
+    }
+
+    if(e2 <= dx){
+
+      e += dx;
+      y0 += sy;
+
+    }
+
+  }
+
+  return out;
+
+}
+
+
 /* ============================================================
    WORLD EDGE
    ============================================================ */
