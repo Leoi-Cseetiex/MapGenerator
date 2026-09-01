@@ -1515,18 +1515,16 @@ function renderDetailSquares(b){
     minor (16×16 per parent) grid once zoomed in enough to
     resolve them — same thresholds as the microGrid/minorGrid
     line overlays — otherwise fall back to the coarse raw
-    SUB reserve-cell blocks for very zoomed-out views.
+    SUB reserve-cell blocks for very zoomed-out views. Shared
+    with renderNetworkTiles via quantizeGrid() so both passes
+    snap to the exact same cell grid.
   */
 
-  const useMicro =
-    b.scale / MICRO_PER_MINOR >= 1.25;
-
-  const useMinor =
-    !useMicro &&
-    b.scale >= 3;
+  const grid =
+    quantizeGrid(b);
 
 
-  if(!useMicro && !useMinor){
+  if(!grid.useMicro && !grid.useMinor){
 
     for(
       let y=b.cy0;
@@ -1579,24 +1577,10 @@ function renderDetailSquares(b){
   }
 
 
-  const step =
-    useMicro
-      ? 1/MICRO_PER_MINOR
-      : 1;
-
-  const qx0 =
-    Math.floor(b.sx/step) *
-    step;
-
-  const qy0 =
-    Math.floor(b.sy/step) *
-    step;
-
-
   for(
-    let qy=qy0;
+    let qy=grid.qy0;
     qy<b.sy+b.span;
-    qy+=step
+    qy+=grid.step
   ){
 
     const cy =
@@ -1607,9 +1591,9 @@ function renderDetailSquares(b){
       );
 
     for(
-      let qx=qx0;
+      let qx=grid.qx0;
       qx<b.sx+b.span;
-      qx+=step
+      qx+=grid.step
     ){
 
       const cx =
@@ -1641,11 +1625,11 @@ function renderDetailSquares(b){
         ) *
         b.scale,
 
-        step *
+        grid.step *
         b.scale +
         .5,
 
-        step *
+        grid.step *
         b.scale +
         .5
 
@@ -1659,11 +1643,546 @@ function renderDetailSquares(b){
 
 
 /* ============================================================
+   GRID SQUARES — NETWORK TILES
+   Roads, rail and intersections painted directly onto the same
+   cell grid renderDetailSquares fills, instead of independently
+   rasterizing the smooth road/intersection shapes and compositing
+   the result on top (which is what produced mismatched seams —
+   e.g. a station's flat reservation-disk footprint and its hollow
+   ring icon disagreeing on both size and shape). Every stamp here
+   is a capsule (thick-line / disk) distance test against the same
+   quantizeGrid() cells the base fill uses, so edges always land on
+   shared cell boundaries.
+
+   Stamps are written straight into a small RGBA pixel buffer sized
+   to the visible cell grid (bounded regardless of zoom) rather than
+   through per-cell ctx.fillStyle/fillRect calls — with hundreds of
+   roads each covering many cells, individual canvas draw calls are
+   the bottleneck; one buffer write + one final blit is not.
+   ============================================================ */
+
+const NET_CENTER_CYCLE =
+  20 * MICRO_PER_MINOR;
+
+const NET_CENTER_ON =
+  10 * MICRO_PER_MINOR;
+
+const NET_WIDE_CYCLE =
+  30 * MICRO_PER_MINOR;
+
+const NET_WIDE_ON =
+  12 * MICRO_PER_MINOR;
+
+const NET_WIDE_OFFSET =
+  7 * MICRO_PER_MINOR;
+
+const rgbCache = {};
+
+
+function rgbOf(hex){
+
+  const cached =
+    rgbCache[hex];
+
+  if(cached){
+    return cached;
+  }
+
+  const rgb = [
+    parseInt(hex.slice(1,3),16),
+    parseInt(hex.slice(3,5),16),
+    parseInt(hex.slice(5,7),16)
+  ];
+
+  rgbCache[hex] = rgb;
+
+  return rgb;
+
+}
+
+
+function dashOn(tAbs,cycle,on){
+
+  const m =
+    ((tAbs % cycle) + cycle) %
+    cycle;
+
+  return m < on;
+
+}
+
+
+function stampRoadRun(
+  data,
+  cells,
+  b,
+  grid,
+  ax,ay,
+  bx,by,
+  hwMicro,
+  colorFn
+){
+
+  const vx0 =
+    b.sx * MICRO_PER_MINOR;
+
+  const vy0 =
+    b.sy * MICRO_PER_MINOR;
+
+  const vx1 =
+    (b.sx+b.span) *
+    MICRO_PER_MINOR;
+
+  const vy1 =
+    (b.sy+b.span) *
+    MICRO_PER_MINOR;
+
+
+  const x0 =
+    Math.max(
+      Math.min(ax,bx)-hwMicro,
+      vx0
+    );
+
+  const x1 =
+    Math.min(
+      Math.max(ax,bx)+hwMicro,
+      vx1
+    );
+
+  const y0 =
+    Math.max(
+      Math.min(ay,by)-hwMicro,
+      vy0
+    );
+
+  const y1 =
+    Math.min(
+      Math.max(ay,by)+hwMicro,
+      vy1
+    );
+
+
+  if(x0 >= x1 || y0 >= y1){
+    return;
+  }
+
+
+  const stepMicro =
+    grid.step *
+    MICRO_PER_MINOR;
+
+  const qx0 =
+    Math.floor(x0/stepMicro) *
+    stepMicro;
+
+  const qy0 =
+    Math.floor(y0/stepMicro) *
+    stepMicro;
+
+
+  for(
+    let my=qy0;
+    my<y1;
+    my+=stepMicro
+  ){
+
+    const py =
+      Math.round(
+        (my/MICRO_PER_MINOR-b.sy) /
+        grid.step
+      );
+
+    if(py < 0 || py >= cells){
+      continue;
+    }
+
+    for(
+      let mx=qx0;
+      mx<x1;
+      mx+=stepMicro
+    ){
+
+      const px =
+        Math.round(
+          (mx/MICRO_PER_MINOR-b.sx) /
+          grid.step
+        );
+
+      if(px < 0 || px >= cells){
+        continue;
+      }
+
+      const {dist,t} =
+        distToSegment(
+          mx,my,
+          ax,ay,
+          bx,by
+        );
+
+      if(dist > hwMicro){
+        continue;
+      }
+
+      const rgb =
+        colorFn(dist,t);
+
+      if(!rgb){
+        continue;
+      }
+
+      const idx =
+        (py*cells+px)*4;
+
+      data[idx] = rgb[0];
+      data[idx+1] = rgb[1];
+      data[idx+2] = rgb[2];
+      data[idx+3] = 255;
+
+    }
+
+  }
+
+}
+
+
+function renderNetworkTiles(b){
+
+  const grid =
+    quantizeGrid(b);
+
+  if(!grid.useMicro && !grid.useMinor){
+    return;
+  }
+
+
+  const cellMicro =
+    grid.step *
+    MICRO_PER_MINOR;
+
+  const cells =
+    Math.max(
+      1,
+      Math.ceil(b.span/grid.step)
+    );
+
+  network.width = cells;
+  network.height = cells;
+
+  const img =
+    nwc.createImageData(
+      cells,
+      cells
+    );
+
+  const data =
+    img.data;
+
+
+  /* ---- rail ---- */
+
+  for(
+    const route of
+    state.rails
+  ){
+
+    if(
+      !routeVisible(
+        {points:route},
+        b
+      )
+    ){
+      continue;
+    }
+
+    const corners =
+      microCorners(route);
+
+    const hw =
+      4 * MICRO_PER_MINOR;
+
+    for(
+      let i=1;
+      i<corners.length;
+      i++
+    ){
+
+      stampRoadRun(
+        data,cells,b,grid,
+        corners[i-1].x,
+        corners[i-1].y,
+        corners[i].x,
+        corners[i].y,
+        hw,
+        () => rgbOf(palette.railBed)
+      );
+
+    }
+
+  }
+
+
+  /* ---- stations ---- */
+
+  for(
+    const st of
+    state.stations
+  ){
+
+    const px =
+      Math.round(
+        st.x*MICRO_UNIT
+      );
+
+    const py =
+      Math.round(
+        st.y*MICRO_UNIT
+      );
+
+    stampRoadRun(
+      data,cells,b,grid,
+      px,py,px,py,
+      9.5*MICRO_PER_MINOR,
+      () => rgbOf(palette.platform)
+    );
+
+  }
+
+
+  /* ---- roads ---- */
+
+  for(
+    const r of
+    state.roads
+  ){
+
+    if(
+      !routeVisible(r,b)
+    ){
+      continue;
+    }
+
+    const corners =
+      microCorners(r.points);
+
+    const hwFill =
+      r.widthPx/2 *
+      MICRO_PER_MINOR;
+
+    const hwCurb =
+      (
+        r.type === ALLEY
+          ? r.widthPx
+          : r.widthPx+2
+      ) / 2 *
+      MICRO_PER_MINOR;
+
+    const hwSidewalk =
+      r.type === ALLEY
+        ? hwCurb
+        : (r.widthPx+10) / 2 *
+          MICRO_PER_MINOR;
+
+    const fillColor =
+      rgbOf(
+        r.type === ARTERIAL
+          ? palette.road
+          : r.type === LOCAL
+            ? palette.local
+            : palette.alley
+      );
+
+    const curbColor =
+      rgbOf(
+        r.type === ALLEY
+          ? palette.alley
+          : palette.curb
+      );
+
+    const sidewalkColor =
+      rgbOf(palette.sidewalk);
+
+    const whiteColor =
+      rgbOf(palette.white);
+
+    const edgeOffset =
+      hwFill -
+      2*MICRO_PER_MINOR;
+
+
+    let tBase = 0;
+
+    for(
+      let i=1;
+      i<corners.length;
+      i++
+    ){
+
+      const a =
+        corners[i-1];
+
+      const c =
+        corners[i];
+
+      const runLen =
+        Math.hypot(
+          c.x-a.x,
+          c.y-a.y
+        );
+
+      stampRoadRun(
+        data,cells,b,grid,
+        a.x,a.y,
+        c.x,c.y,
+        hwSidewalk,
+
+        (dist,t) => {
+
+          if(dist <= hwFill){
+
+            const tAbs =
+              tBase+t;
+
+            if(r.type === ARTERIAL){
+
+              if(
+                Math.abs(dist-edgeOffset) <=
+                cellMicro/2
+              ){
+                return whiteColor;
+              }
+
+              if(
+                dist <= cellMicro/2 &&
+                dashOn(
+                  tAbs,
+                  NET_CENTER_CYCLE,
+                  NET_CENTER_ON
+                )
+              ){
+                return whiteColor;
+              }
+
+              if(
+                r.widthPx >= 28 &&
+                Math.abs(dist-NET_WIDE_OFFSET) <=
+                cellMicro/2 &&
+                dashOn(
+                  tAbs,
+                  NET_WIDE_CYCLE,
+                  NET_WIDE_ON
+                )
+              ){
+                return whiteColor;
+              }
+
+            }
+            else if(
+              r.type === LOCAL &&
+              r.widthPx >= 14
+            ){
+
+              if(
+                dist <= cellMicro/2 &&
+                dashOn(
+                  tAbs,
+                  NET_CENTER_CYCLE,
+                  NET_CENTER_ON
+                )
+              ){
+                return whiteColor;
+              }
+
+            }
+
+            return fillColor;
+
+          }
+
+          if(dist <= hwCurb){
+            return curbColor;
+          }
+
+          if(dist <= hwSidewalk){
+            return sidewalkColor;
+          }
+
+          return null;
+
+        }
+
+      );
+
+      tBase += runLen;
+
+    }
+
+  }
+
+
+  /* ---- intersections (painted last, over roads) ---- */
+
+  for(
+    const n of
+    state.intersections
+  ){
+
+    const px =
+      Math.round(
+        n.x*MICRO_UNIT
+      );
+
+    const py =
+      Math.round(
+        n.y*MICRO_UNIT
+      );
+
+    stampRoadRun(
+      data,cells,b,grid,
+      px,py,px,py,
+      n.radius*MICRO_PER_MINOR,
+      () => rgbOf(palette.junction)
+    );
+
+  }
+
+
+  nwc.putImageData(
+    img,
+    0,
+    0
+  );
+
+  dc.save();
+
+  dc.imageSmoothingEnabled =
+    false;
+
+  dc.drawImage(
+    network,
+    0,
+    0,
+    cells,
+    cells,
+    0,
+    0,
+    V,
+    V
+  );
+
+  dc.restore();
+
+}
+
+
+/* ============================================================
    GRID SQUARES — PIXELATED ELEMENT DETAIL
-   Roads, intersections, rail and park/asset elements, resampled
-   down to one block per 16×16 minor square then blown back up
-   with no smoothing, so they read as blocky pixel-art detail
-   on top of the flat reservation-colour squares.
+   Park/asset elements only (roads, rail, platforms and
+   intersections are painted directly by renderNetworkTiles
+   instead — see above), resampled down to one block per
+   16×16 minor square then blown back up with no smoothing, so
+   they read as blocky pixel-art detail on top of the flat
+   reservation-colour squares.
    ============================================================ */
 
 function renderDetailPixelated(b){
@@ -1676,9 +2195,6 @@ function renderDetailPixelated(b){
   );
 
 
-  renderLayer(-2, tc, b, false);
-  renderLayer(-1, tc, b, false);
-  renderLayer(1, tc, b, false);
   renderLayer(2, tc, b, false, null, false);
 
 
@@ -1774,6 +2290,8 @@ function renderDetail(){
   ){
 
     renderDetailSquares(b);
+
+    renderNetworkTiles(b);
 
     renderDetailPixelated(b);
 

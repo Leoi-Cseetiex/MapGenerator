@@ -255,6 +255,16 @@ const pxc =
   pixelate.getContext('2d');
 
 
+const network =
+  document.createElement('canvas');
+
+network.width = 1;
+network.height = 1;
+
+const nwc =
+  network.getContext('2d');
+
+
 const ci = (x,y) =>
   y * C + x;
 

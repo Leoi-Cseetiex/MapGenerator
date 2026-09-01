@@ -108,6 +108,45 @@ function bounds(){
 }
 
 
+/*
+  Grid-squares LOD quantization — shared by the flat reservation
+  fill and the network-tile pass so both snap to the exact same
+  cell grid and their edges always line up pixel-for-pixel.
+*/
+
+function quantizeGrid(b){
+
+  const useMicro =
+    b.scale / MICRO_PER_MINOR >= 1.25;
+
+  const useMinor =
+    !useMicro &&
+    b.scale >= 3;
+
+  const step =
+    useMicro
+      ? 1/MICRO_PER_MINOR
+      : 1;
+
+  const qx0 =
+    Math.floor(b.sx/step) *
+    step;
+
+  const qy0 =
+    Math.floor(b.sy/step) *
+    step;
+
+  return {
+    useMicro,
+    useMinor,
+    step,
+    qx0,
+    qy0
+  };
+
+}
+
+
 /* ============================================================
    WORLD TO VIEW
    ============================================================ */
@@ -342,6 +381,25 @@ function steppedRoutePoints(points){
 }
 
 
+/*
+  Same cell-stepped corner list, but as integer MICRO-grid
+  coordinates rather than RAW-coordinate floats — the form the
+  network tile stamper wants. No separate cache: steppedRoutePoints
+  is already memoized and corner lists are short after simplifying.
+*/
+
+function microCorners(points){
+
+  return steppedRoutePoints(points).map(
+    p => ({
+      x:Math.round(p.x*MICRO_UNIT),
+      y:Math.round(p.y*MICRO_UNIT)
+    })
+  );
+
+}
+
+
 /* ============================================================
    ROUTE DRAWING
    ============================================================ */
@@ -362,16 +420,6 @@ function strokeRoute(
       b
     )
   ){
-    return;
-  }
-
-
-  const pts =
-    steppedRoutePoints(
-      road.points
-    );
-
-  if(pts.length < 2){
     return;
   }
 
@@ -403,52 +451,82 @@ function strokeRoute(
   );
 
 
-  ctx.beginPath();
+  /*
+    Unoffset (the road body itself) follows the cell-stepped
+    centerline as one continuous path. An offset line (lane
+    markings) is drawn from the original free-angle control
+    points instead, one small segment per pair with its own
+    local normal — deriving it from the stepped path's corners
+    would amplify the staircase's direction noise by the offset
+    distance, swinging the marking wildly off the road.
+  */
 
+  if(!offset){
 
-  for(
-    let i=0;
-    i<pts.length;
-    i++
-  ){
-
-    const p =
-      worldPoint(
-        pts[i],
-        b
+    const pts =
+      steppedRoutePoints(
+        road.points
       );
 
+    if(pts.length < 2){
+      ctx.setLineDash([]);
+      return;
+    }
 
-    let nx = 0;
-    let ny = 0;
+
+    ctx.beginPath();
 
 
-    if(offset){
+    for(
+      let i=0;
+      i<pts.length;
+      i++
+    ){
 
-      const prev =
-        pts[
-          Math.max(0,i-1)
-        ];
+      const p =
+        worldPoint(
+          pts[i],
+          b
+        );
 
-      const next =
-        pts[
-          Math.min(
-            pts.length-1,
-            i+1
-          )
-        ];
+      if(i === 0){
+        ctx.moveTo(p.x,p.y);
+      }
+      else{
+        ctx.lineTo(p.x,p.y);
+      }
 
-      const pw =
-        worldPoint(prev,b);
+    }
 
-      const nw =
-        worldPoint(next,b);
+
+    ctx.stroke();
+
+  }
+  else{
+
+    for(
+      let i=1;
+      i<road.points.length;
+      i++
+    ){
+
+      const a =
+        worldPoint(
+          road.points[i-1],
+          b
+        );
+
+      const c =
+        worldPoint(
+          road.points[i],
+          b
+        );
 
       const dx =
-        nw.x-pw.x;
+        c.x-a.x;
 
       const dy =
-        nw.y-pw.y;
+        c.y-a.y;
 
       const L =
         Math.max(
@@ -456,32 +534,43 @@ function strokeRoute(
           Math.hypot(dx,dy)
         );
 
-      nx = -dy/L;
-      ny = dx/L;
+      const nx =
+        -dy/L;
 
-    }
-
-
-    const x =
-      p.x +
-      nx*offset*b.scale;
-
-    const y =
-      p.y +
-      ny*offset*b.scale;
+      const ny =
+        dx/L;
 
 
-    if(i === 0){
-      ctx.moveTo(x,y);
-    }
-    else{
-      ctx.lineTo(x,y);
+      ctx.beginPath();
+
+
+      ctx.moveTo(
+
+        a.x +
+        nx*offset*b.scale,
+
+        a.y +
+        ny*offset*b.scale
+
+      );
+
+
+      ctx.lineTo(
+
+        c.x +
+        nx*offset*b.scale,
+
+        c.y +
+        ny*offset*b.scale
+
+      );
+
+
+      ctx.stroke();
+
     }
 
   }
-
-
-  ctx.stroke();
 
 
   ctx.setLineDash([]);

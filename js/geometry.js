@@ -391,6 +391,71 @@ function canRect(
    GEOMETRY
    ============================================================ */
 
+/*
+  Clamped point-to-segment distance, taking raw numbers (not
+  point objects) since it runs in tight per-cell stamping loops.
+  `t` is the unclamped-space distance along the segment from
+  (ax,ay), in the same units as the inputs — reused as a dash-
+  cycle accumulator by callers.
+*/
+
+function distToSegment(
+  px,py,ax,ay,bx,by
+){
+
+  const vx =
+    bx-ax;
+
+  const vy =
+    by-ay;
+
+  const l2 =
+    vx*vx +
+    vy*vy;
+
+  if(l2 === 0){
+
+    return {
+      dist:Math.hypot(px-ax,py-ay),
+      t:0
+    };
+
+  }
+
+  const raw =
+    (
+      (px-ax)*vx +
+      (py-ay)*vy
+    ) /
+    l2;
+
+  const tClamped =
+    clamp(raw,0,1);
+
+  const cx =
+    ax +
+    tClamped*vx;
+
+  const cy =
+    ay +
+    tClamped*vy;
+
+  return {
+
+    dist:Math.hypot(
+      px-cx,
+      py-cy
+    ),
+
+    t:
+      raw *
+      Math.sqrt(l2)
+
+  };
+
+}
+
+
 function heading(a,b){
 
   return Math.atan2(
